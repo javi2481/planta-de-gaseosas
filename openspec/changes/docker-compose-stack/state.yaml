@@ -1,0 +1,5 @@
+change: docker-compose-stack
+status: ready-to-implement
+phases_completed: [explore, propose, spec, design, tasks]
+phases_in_progress: []
+artifact_store: openspec

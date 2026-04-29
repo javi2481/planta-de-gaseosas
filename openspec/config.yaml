@@ -1,0 +1,50 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.11 + Docker Compose
+  Architecture: IoT pipeline — MQTT → Telegraf → InfluxDB 3 Core → Grafana + MinIO (Parquet)
+  Services: Mosquitto, Telegraf, InfluxDB 3 Core, Grafana, MinIO
+  Testing: none detected
+  Style: no linter configured yet
+
+strict_tdd: false
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected services/files
+    - Docker healthchecks are required on all services
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Reference specific sensor names and topic patterns
+  design:
+    - Include service dependency diagram
+    - Document InfluxDB 3 + MinIO storage config explicitly
+    - Auth tokens always via .env
+  tasks:
+    - Group by phase: infrastructure, simulator, observability, storage
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Tasks small enough to complete in one session
+  apply:
+    - Follow healthcheck pattern on all services
+    - Never hardcode secrets — use .env
+    - Publish to planta/linea1/sensor/<nombre> at 1s intervals
+  verify:
+    - docker-compose up -d and check all containers healthy
+    - Confirm data visible in Grafana and Parquet in MinIO
+  archive:
+    - Warn before merging destructive deltas
+
+testing:
+  strict_tdd: false
+  test_runner: null
+  layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage: false
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false
