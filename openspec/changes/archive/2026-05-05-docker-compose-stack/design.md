@@ -198,27 +198,10 @@ Imagen: `telegraf:1.30`. Mount `./telegraf/telegraf.conf:/etc/telegraf/telegraf.
 **`telegraf/telegraf.conf`** (contenido exacto):
 
 ```toml
-[agent]
-  interval = "1s"
-  round_interval = true
-  metric_batch_size = 1000
-  metric_buffer_limit = 10000
-  collection_jitter = "0s"
-  flush_interval = "1s"
-  flush_jitter = "0s"
-  precision = "1s"
-  hostname = "telegraf"
-  omit_hostname = false
-  debug = false
-  quiet = false
-
-###############################################################################
-# INPUT — MQTT consumer
-###############################################################################
 [[inputs.mqtt_consumer]]
   servers = ["tcp://mosquitto:1883"]
   topics = [
-    "planta/linea1/sensor/+",
+    "planta1/+/sensor/+",
   ]
   qos = 0
   connection_timeout = "30s"
@@ -227,15 +210,24 @@ Imagen: `telegraf:1.30`. Mount `./telegraf/telegraf.conf:/etc/telegraf/telegraf.
   data_format = "value"
   data_type   = "float"
 
-  # Mapea el ultimo segmento del topic al nombre de measurement.
-  # planta/linea1/sensor/temperatura_pasteurizador -> measurement = "temperatura_pasteurizador"
+  # UNS: extrae el ultimo segmento como measurement.
+  # planta1/llenadora/sensor/vibracion_llenadora -> measurement = "vibracion_llenadora"
   topic_parsing = [
-    { topic = "planta/linea1/sensor/+", measurement = "_/_/_/measurement" },
+    { topic = "planta1/+/sensor/+", measurement = "_/_/_/measurement" },
   ]
 
   [inputs.mqtt_consumer.tags]
-    linea = "linea1"
     planta = "gaseosas"
+
+###############################################################################
+# PROCESSOR — Extraer área del topic como tag para evitar colisiones
+###############################################################################
+[[processors.regex]]
+  namepass = ["*"]
+  [[processors.regex.tags]]
+    key   = "topic"
+    pattern = "^planta1/([^/]+)/sensor/.+$"
+    result_key = "area"
 
 ###############################################################################
 # OUTPUT — InfluxDB v2 API (compatible con InfluxDB 3 Core)
@@ -270,38 +262,50 @@ healthcheck:
 
 ### Python Simulator
 
-Single-threaded, paho-mqtt con `loop_start()`. 9 sensores, 1 mensaje/seg por sensor. Spike sintético cada 300s para validar alertas.
+Single-threaded, paho-mqtt con `loop_start()`. 11 sensores con UNS (Unified Naming System), 1 mensaje/seg por sensor. Spike sintético cada 300s para validar alertas.
+
+**UNS — Unified Naming System**: cada sensor se asigna a un área de la planta. Topic resultante: `planta1/<area>/sensor/<nombre>`.
 
 **Tabla de sensores** (constante en `sensores.py`):
 
-| Sensor                     | Unidad     | Baseline | Ruido (±) | Spike value | Tipo    |
-|----------------------------|------------|----------|-----------|-------------|---------|
-| temperatura_pasteurizador  | °C         | 75.0     | 1.5       | 92.0        | gauge   |
-| presion_llenadora          | bar        | 3.2      | 0.1       | 4.5         | gauge   |
-| nivel_jarabe               | %          | 65.0     | 5.0       | 12.0        | gauge   |
-| caudal_agua                | L/min      | 120.0    | 8.0       | 30.0        | gauge   |
-| vibracion_llenadora        | mm/s       | 2.5      | 0.5       | 12.0        | gauge   |
-| temperatura_camara_co2     | °C         | 4.0      | 0.3       | 9.0         | gauge   |
-| velocidad_cinta            | botellas/m | 250.0    | 10.0      | 80.0        | gauge   |
-| conteo_botellas            | unidades   | counter  | +1/seg    | n/a         | counter |
-| conteo_rechazos            | unidades   | counter  | +rate     | n/a         | counter |
+| Sensor                     | Área              | Unidad     | Baseline | Ruido (±) | Spike value | Tipo    |
+|----------------------------|-------------------|------------|----------|-----------|-------------|---------|
+| temperatura_pasteurizador  | pasteurizador     | °C         | 75.0     | 1.5       | 92.0        | gauge   |
+| presion_llenadora          | llenadora         | bar        | 3.2      | 0.1       | 4.5         | gauge   |
+| vibracion_llenadora        | llenadora         | mm/s       | 2.5      | 0.5       | 12.0        | gauge   |
+| nivel_jarabe               | mezcla            | %          | 65.0     | 5.0       | 12.0        | gauge   |
+| caudal_agua                | mezcla            | L/min      | 120.0    | 8.0       | 30.0        | gauge   |
+| temperatura_camara_co2     | almacenamiento    | °C         | 4.0      | 0.3       | 9.0         | gauge   |
+| temperatura_camara_fria    | almacenamiento    | °C         | 4.0      | 0.2       | —           | gauge   |
+| velocidad_cinta            | transporte        | botellas/m | 250.0    | 10.0      | 80.0        | gauge   |
+| conteo_botellas            | transporte        | unidades   | counter  | +1/seg    | n/a         | counter |
+| conteo_rechazos            | transporte        | unidades   | counter  | +rate     | n/a         | counter |
+| nivel_tapas                | insumos           | %          | 75.0     | 1.0       | n/a         | gauge   |
 
-Para counters: `conteo_botellas` incrementa ~1 por segundo (con jitter normal). `conteo_rechazos` incrementa con probabilidad p=0.02 por segundo (≈2% rejection rate base). OEE en Grafana se calcula como `(conteo_botellas - conteo_rechazos) / conteo_botellas`.
+Para counters: `conteo_botellas` incrementa ~1 por segundo. `conteo_rechazos` incrementa con probabilidad p=0.02 por segundo. OEE en Grafana se calcula como `(conteo_botellas - conteo_rechazos) / conteo_botellas`.
 
 **Estructura de `SENSORS` (Python)**:
 
 ```python
-SENSORS = {
-    "temperatura_pasteurizador": {"baseline": 75.0, "noise": 1.5, "spike": 92.0,  "kind": "gauge"},
-    "presion_llenadora":         {"baseline": 3.2,  "noise": 0.1, "spike": 4.5,   "kind": "gauge"},
-    "nivel_jarabe":              {"baseline": 65.0, "noise": 5.0, "spike": 12.0,  "kind": "gauge"},
-    "caudal_agua":               {"baseline": 120.0,"noise": 8.0, "spike": 30.0,  "kind": "gauge"},
-    "vibracion_llenadora":       {"baseline": 2.5,  "noise": 0.5, "spike": 12.0,  "kind": "gauge"},
-    "temperatura_camara_co2":    {"baseline": 4.0,  "noise": 0.3, "spike": 9.0,   "kind": "gauge"},
-    "velocidad_cinta":           {"baseline": 250.0,"noise": 10.0,"spike": 80.0,  "kind": "gauge"},
-    "conteo_botellas":           {"baseline": 0,    "rate": 1.0,                  "kind": "counter"},
-    "conteo_rechazos":           {"baseline": 0,    "rate": 0.02,                 "kind": "counter"},
+ROOT = os.environ.get("MQTT_TOPIC_PREFIX", "planta1")
+
+AREA_MAP = {
+    "temperatura_pasteurizador": "pasteurizador",
+    "presion_llenadora":         "llenadora",
+    "vibracion_llenadora":       "llenadora",
+    "nivel_jarabe":              "mezcla",
+    "caudal_agua":               "mezcla",
+    "temperatura_camara_co2":    "almacenamiento",
+    "temperatura_camara_fria":   "almacenamiento",
+    "velocidad_cinta":           "transporte",
+    "conteo_botellas":           "transporte",
+    "conteo_rechazos":           "transporte",
+    "nivel_tapas":               "insumos",
 }
+
+# En el loop de publish:
+area = AREA_MAP.get(name, "general")
+client.publish(f"{ROOT}/{area}/sensor/{name}", payload=f"{value:.4f}", qos=0)
 ```
 
 **Loop pattern** (pseudo-código exacto):
@@ -312,7 +316,7 @@ import paho.mqtt.client as mqtt
 
 BROKER  = os.environ.get("MQTT_BROKER", "mosquitto")
 PORT    = int(os.environ.get("MQTT_PORT", "1883"))
-TOPIC_P = os.environ.get("MQTT_TOPIC_PREFIX", "planta/linea1/sensor")
+ROOT    = os.environ.get("MQTT_TOPIC_PREFIX", "planta1")
 
 client = mqtt.Client(client_id="simulator", protocol=mqtt.MQTTv5)
 client.connect(BROKER, PORT, keepalive=30)
@@ -327,7 +331,7 @@ try:
 
         for name, cfg in SENSORS.items():
             if cfg["kind"] == "gauge":
-                if spike_window:
+                if spike_window and "spike" in cfg:
                     value = cfg["spike"]
                 else:
                     value = cfg["baseline"] + random.gauss(0, cfg["noise"])
@@ -339,7 +343,8 @@ try:
                         counters[name] += 1
                 value = counters[name]
 
-            client.publish(f"{TOPIC_P}/{name}", payload=f"{value:.4f}", qos=0)
+            area = AREA_MAP.get(name, "general")
+            client.publish(f"{ROOT}/{area}/sensor/{name}", payload=f"{value:.4f}", qos=0)
 
         t += 1
         time.sleep(1.0)
@@ -656,11 +661,13 @@ GF_SECURITY_ADMIN_PASSWORD=admin
 GF_USERS_ALLOW_SIGN_UP=false
 
 # ----------------------------------------------------------------------------
-# Simulador
+# Simulador — UNS (Unified Naming System)
+# Topic format: planta1/<area>/sensor/<nombre>
+# El AREA_MAP interno asigna cada sensor a su área.
 # ----------------------------------------------------------------------------
 MQTT_BROKER=mosquitto
 MQTT_PORT=1883
-MQTT_TOPIC_PREFIX=planta/linea1/sensor
+MQTT_TOPIC_PREFIX=planta1
 
 # ----------------------------------------------------------------------------
 # Telegraf
@@ -674,20 +681,21 @@ MQTT_TOPIC_PREFIX=planta/linea1/sensor
 
 ```
 1. simulator (Python)
-   └─ paho-mqtt publish:
-      topic   = planta/linea1/sensor/<nombre>
+   └─ paho-mqtt publish (UNS):
+      topic   = planta1/<area>/sensor/<nombre>
       payload = "<float>"     (ej. "75.42")
       qos     = 0
-      cada 1s, 9 sensores -> 9 mensajes/seg
+      cada 1s, 11 sensores -> 11 mensajes/seg
 
 2. mosquitto:1883
    └─ broker MQTT, retiene nada (persistence solo para SYS topics)
 
 3. telegraf
-   └─ subscribe a planta/linea1/sensor/+
+   └─ subscribe a planta1/+/sensor/+
       data_format = "value", data_type = "float"
-      topic_parsing extrae el ultimo segmento como measurement name
-      tags: linea=linea1, planta=gaseosas
+      topic_parsing extrae ultimo segmento -> measurement name
+      processors.regex extrae area del topic -> tag "area"
+      tag: planta=gaseosas
    └─ output influxdb_v2:
       POST http://influxdb:8181/api/v2/write?bucket=sensores&org=
       organization = ""  (CRITICAL para v3)
@@ -727,7 +735,8 @@ Latencia objetivo: simulator -> grafana < 3s. Cuello principal: `flush_interval=
 | Telegraf `organization` | `""` (string vacío) | InfluxDB 3 Core ignora la org pero la API v2 la valida; cualquier valor no vacío => 400 |
 | Telegraf -> InfluxDB | `outputs.influxdb_v2` | InfluxDB 3 Core habla API v2 nativa; `influxdb_v3` plugin no existe en Telegraf 1.30 |
 | Grafana query language | InfluxQL via header auth | InfluxDB 3 Core soporta InfluxQL via `/query`; Flux deprecado en v3; SQL endpoint requeriría plugin extra |
-| Simulador concurrencia | Single-thread + `loop_start()` | 9 msg/seg es trivial; threading/asyncio agregan complejidad sin beneficio medible |
+| Simulador concurrencia | Single-thread + `loop_start()` | 11 msg/seg es trivial; threading/asyncio agregan complejidad sin beneficio medible |
+| UNS topic pattern | `planta1/<area>/sensor/<nombre>` | Organiza sensores por área de planta; evita colisiones de nombre con tag `area` en Telegraf |
 | OEE source | Sensor `conteo_rechazos` real | Permite calcular OEE como ratio en Grafana; sin hardcodear eficiencia |
 | Spike trigger | `t % 300 < 2` | 2 segundos de valores de spike cada 5 minutos => alertas dispararan en demos |
 | Healthchecks | Todos los servicios | `condition: service_healthy` garantiza orden < 60s; sin healthcheck el orden no está garantizado |

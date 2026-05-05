@@ -12,6 +12,8 @@ The `docker-compose.yml` file MUST declare all seven services — `mosquitto`, `
 
 Every service except `createbuckets` MUST define a `healthcheck` block. `createbuckets` MAY exit with code 0 after completing its task; it MUST be declared with `restart: on-failure` to retry if the MinIO API is not yet ready.
 
+(Previously: `createbuckets` had `restart: "no"` in docker-compose.yml, preventing retries when MinIO isn't ready)
+
 All `depends_on` entries MUST use `condition: service_healthy` (or `condition: service_completed_successfully` for `createbuckets`) so that the startup order is enforced deterministically.
 
 All secrets and configurable values (credentials, ports, bucket names, database names) MUST be read from environment variables sourced from a `.env` file. Hardcoded credentials in `docker-compose.yml` are NOT permitted.
@@ -50,31 +52,47 @@ A `.env.example` file MUST be provided that covers every variable referenced in 
 - When: the operator runs `docker-compose down -v`
 - Then: all containers stop, all named volumes are removed, and the host filesystem returns to the pre-run state (only project source files remain)
 
+**Scenario 1.1.6 — createbuckets retries on MinIO unavailability**
+
+- Given: the stack is starting and MinIO is not yet healthy
+- When: `createbuckets` service starts and attempts to connect to MinIO
+- Then: the service MUST retry (due to `restart: on-failure`) until MinIO becomes available and the bucket is created successfully
+
 ---
 
 ### FR-2: Sensor Simulation (Story 1.2)
 
-The `simulator` service MUST be a Python 3.11 container that publishes exactly 9 sensor readings every second via MQTT to the broker at `tcp://mosquitto:1883`. Each sensor MUST publish to the topic pattern `planta/linea1/sensor/<nombre>` where `<nombre>` matches the sensor name in the table below. Each MQTT message payload MUST be a single ASCII-encoded floating-point number (no JSON wrapper).
+The `simulator` service MUST be a Python 3.11 container that publishes exactly 11 sensor readings every second via MQTT to the broker at `tcp://mosquitto:1883`. Each sensor MUST publish to the topic pattern `planta1/<area>/sensor/<nombre>` where `<area>` is determined by the Unified Naming System (UNS) mapping below and `<nombre>` matches the sensor name. Each MQTT message payload MUST be a single ASCII-encoded floating-point number (no JSON wrapper).
 
-The simulator MUST introduce periodic spikes to simulate process anomalies. A spike MUST be triggered when `int(time.time()) % 300 < 2` (approximately every 5 minutes, lasting ~2 seconds). During a spike, `temperatura_pasteurizador` MUST publish its spike value and `vibracion_llenadora` MUST publish its spike value.
+The simulator MUST introduce periodic spikes to simulate process anomalies. A spike MUST be triggered when `int(time.time()) % 300 < 45` (approximately every 5 minutes, lasting ~45 seconds). During a spike, `temperatura_pasteurizador` MUST publish its spike value and `vibracion_llenadora` MUST publish its spike value.
 
-All 9 sensors MUST be published within a single 1-second loop iteration. The simulator MUST use `paho-mqtt` with `loop_start()` for non-blocking MQTT I/O. No `asyncio` or additional threading is required.
+(Previously: spike window was `(t % 300) < 2` lasting ~2s, which was too short for Grafana alerts with `for: 30s)
 
-#### Sensors
+All 11 sensors MUST be published within a single 1-second loop iteration. The simulator MUST use `paho-mqtt` with `loop_start()` for non-blocking MQTT I/O. No `asyncio` or additional threading is required.
 
-| Sensor Name | Unit | Baseline | Noise (±) | Spike Value |
-|---|---|---|---|---|
-| `caudal_jarabe` | L/min | 45.0 | 2.0 | — |
-| `presion_carbonatacion` | bar | 3.8 | 0.1 | — |
-| `velocidad_cinta` | bot/min | 120.0 | 5.0 | — |
-| `temperatura_pasteurizador` | °C | 78.0 | 0.5 | 92.0 |
-| `conteo_botellas` | acum. | increments +2/s | — | — |
-| `nivel_tapas` | % | 75.0 | 1.0 | — |
-| `vibracion_llenadora` | mm/s | 3.5 | 0.3 | 12.0 |
-| `temperatura_camara_fria` | °C | 4.0 | 0.2 | — |
-| `conteo_rechazos` | acum. | increments +0 to +1/s | — | — |
+#### Unified Naming System (UNS)
 
-`conteo_botellas` and `conteo_rechazos` are monotonically increasing counters. `conteo_botellas` MUST increment by approximately 2 per second. `conteo_rechazos` MUST increment randomly (0 or 1 per second) to simulate occasional rejects.
+Each sensor is assigned to a plant area to enable hierarchical topic organization and avoid measurement name collisions in InfluxDB.
+
+| Sensor Name | Area | Unit | Baseline | Noise (±) | Spike Value |
+|---|---|---|---|---|---|
+| `temperatura_pasteurizador` | pasteurizador | °C | 75.0 | 1.5 | 92.0 |
+| `presion_llenadora` | llenadora | bar | 3.2 | 0.1 | 4.5 |
+| `vibracion_llenadora` | llenadora | mm/s | 2.5 | 0.5 | 12.0 |
+| `nivel_jarabe` | mezcla | % | 65.0 | 5.0 | 12.0 |
+| `caudal_agua` | mezcla | L/min | 120.0 | 8.0 | 30.0 |
+| `temperatura_camara_co2` | almacenamiento | °C | 4.0 | 0.3 | 9.0 |
+| `temperatura_camara_fria` | almacenamiento | °C | 4.0 | 0.2 | — |
+| `velocidad_cinta` | transporte | bot/min | 250.0 | 10.0 | 80.0 |
+| `conteo_botellas` | transporte | acum. | increments +1/s | — | — |
+| `conteo_rechazos` | transporte | acum. | increments +0 to +1/s | — | — |
+| `nivel_tapas` | insumos | % | 75.0 | 1.0 | — |
+
+`conteo_botellas` and `conteo_rechazos` are monotonically increasing counters. `conteo_botellas` MUST increment by approximately 1 per second. `conteo_rechazos` MUST increment randomly (0 or 1 per second) to simulate occasional rejects.
+
+The root topic prefix (`planta1`) MUST be configurable via the `MQTT_TOPIC_PREFIX` environment variable. The full topic for each sensor MUST be `{MQTT_TOPIC_PREFIX}/{area}/sensor/{name}`.
+
+Telegraf MUST extract the `area` from the topic and attach it as a tag on each InfluxDB point to prevent measurement name collisions when multiple areas share sensor names (e.g., `temperatura` in both `pasteurizador` and `almacenamiento`).
 
 #### Scenarios
 
@@ -82,19 +100,19 @@ All 9 sensors MUST be published within a single 1-second loop iteration. The sim
 
 - Given: the simulator is running and connected to `mosquitto`
 - When: 10 seconds elapse
-- Then: Mosquitto broker logs show at least 90 messages received (9 sensors × 10 seconds); no sensor is missing from the published topics
+- Then: Mosquitto broker logs show at least 110 messages received (11 sensors × 10 seconds); no sensor is missing from the published topics
 
-**Scenario 1.2.2 — Correct topic format**
+**Scenario 1.2.2 — Correct UNS topic format**
 
 - Given: the simulator is running
-- When: a subscriber connects to `mosquitto` with topic filter `planta/linea1/sensor/+`
-- Then: exactly 9 distinct topic suffixes appear: `caudal_jarabe`, `presion_carbonatacion`, `velocidad_cinta`, `temperatura_pasteurizador`, `conteo_botellas`, `nivel_tapas`, `vibracion_llenadora`, `temperatura_camara_fria`, `conteo_rechazos`
+- When: a subscriber connects to `mosquitto` with topic filter `planta1/+/sensor/+`
+- Then: exactly 11 distinct topic suffixes appear, each following the pattern `planta1/<area>/sensor/<nombre>` with the area matching the UNS mapping table above
 
 **Scenario 1.2.3 — Spike injection**
 
 - Given: the simulator has been running for at least 5 minutes
-- When: `int(time.time()) % 300 < 2` becomes true
-- Then: `temperatura_pasteurizador` publishes a value of 92.0 and `vibracion_llenadora` publishes a value of 12.0 during that 2-second window
+- When: `int(time.time()) % 300 < 45` becomes true
+- Then: `temperatura_pasteurizador` publishes a value of 92.0 and `vibracion_llenadora` publishes a value of 12.0 during that ~45-second window
 
 **Scenario 1.2.4 — Graceful broker reconnect**
 
@@ -107,6 +125,18 @@ All 9 sensors MUST be published within a single 1-second loop iteration. The sim
 - Given: any MQTT message from the simulator
 - When: the payload is decoded as UTF-8
 - Then: the result is a valid decimal number parseable by Python `float()` with no surrounding whitespace or JSON delimiters
+
+**Scenario 1.2.6 — Area tag prevents measurement collision**
+
+- Given: Telegraf is ingesting from multiple areas
+- When: two sensors with the same measurement name exist in different areas (e.g., `temperatura` in `pasteurizador` and `temperatura` in `almacenamiento`)
+- Then: InfluxDB stores them as distinct series distinguished by the `area` tag; queries can filter by `WHERE "area" = '<area>'`
+
+**Scenario 1.2.7 — Spike duration allows alert firing**
+
+- Given: the simulator is running and Grafana alerting is active
+- When: a spike condition is triggered for `temperatura_pasteurizador` or `vibracion_llenadora`
+- Then: the spike MUST last at least 45 seconds to exceed the 30-second `for` duration in Grafana alert rules
 
 ---
 
@@ -132,8 +162,10 @@ The Grafana datasource MUST use `database: sensores` and `jsonData.httpMode: GET
 
 | Alert Name | Condition | Severity |
 |---|---|---|
-| `Alta Temperatura Pasteurizador` | `temperatura_pasteurizador` last value > 85 °C | critical |
-| `Vibración Llenadora Alta` | `vibracion_llenadora` last value > 8 mm/s | critical |
+| `Temperatura pasteurizador alta` | `temperatura_pasteurizador` last value > 85 °C | critical |
+| `Vibración llenadora alta` | `vibracion_llenadora` last value > 8 mm/s | critical |
+
+(Previously: `Vibración llenadora alta` had severity `warning` in rules.yaml, now corrected to `critical` to match spec)
 
 #### Scenarios
 
@@ -152,14 +184,14 @@ The Grafana datasource MUST use `database: sensores` and `jsonData.httpMode: GET
 **Scenario 1.3.3 — Alert fires on temperature spike**
 
 - Given: the stack is running and Grafana alerting is active
-- When: `temperatura_pasteurizador` publishes a value > 85 °C (spike value 92.0)
-- Then: the `Alta Temperatura Pasteurizador` alert transitions to `Firing` state within 30 seconds of the first out-of-range reading
+- When: `temperatura_pasteurizador` publishes a value > 85 °C (spike value 92.0) for at least 30 seconds
+- Then: the `Temperatura pasteurizador alta` alert transitions to `Firing` state within 45 seconds of the first out-of-range reading
 
 **Scenario 1.3.4 — Alert fires on vibration spike**
 
 - Given: the stack is running and Grafana alerting is active
-- When: `vibracion_llenadora` publishes a value > 8 mm/s (spike value 12.0)
-- Then: the `Vibración Llenadora Alta` alert transitions to `Firing` state within 30 seconds of the first out-of-range reading
+- When: `vibracion_llenadora` publishes a value > 8 mm/s (spike value 12.0) for at least 30 seconds
+- Then: the `Vibración llenadora alta` alert transitions to `Firing` state within 45 seconds of the first out-of-range reading
 
 **Scenario 1.3.5 — Sensor-to-panel latency**
 
@@ -172,6 +204,12 @@ The Grafana datasource MUST use `database: sensores` and `jsonData.httpMode: GET
 - Given: over a 1-minute window, `conteo_botellas` incremented by 120 and `conteo_rechazos` incremented by 6
 - When: the OEE panel query executes
 - Then: the displayed OEE value is approximately 95% ((120 - 6) / 120 × 100)
+
+**Scenario 1.3.7 — Vibration alert has correct severity**
+
+- Given: the Grafana alerting rules are loaded from `grafana/provisioning/alerting/rules.yaml`
+- When: the `Vibración llenadora alta` alert rule is inspected
+- Then: the alert MUST have `labels.severity: critical` (not `warning`)
 
 ---
 
@@ -194,7 +232,7 @@ InfluxDB 3 Core MUST be started with the `--without-auth` flag for the developme
 
 Telegraf MUST use the `influxdb_v2` output plugin pointing to `http://influxdb:8181`. The `organization` field MUST be set to an empty string (`""`). The `bucket` field MUST be `sensores`. The `token` field MUST be read from the environment (MAY be any non-empty string when `--without-auth` is active).
 
-Telegraf MUST use the `mqtt_consumer` input plugin subscribed to `planta/linea1/sensor/+` on `mosquitto:1883`. Message `data_format` MUST be `value` and `data_type` MUST be `float`. The topic tag parsing MUST extract the sensor name from the last MQTT topic segment and map it to the InfluxDB measurement name.
+Telegraf MUST use the `mqtt_consumer` input plugin subscribed to `planta1/+/sensor/+` on `mosquitto:1883`. Message `data_format` MUST be `value` and `data_type` MUST be `float`. The topic tag parsing MUST extract the sensor name from the last MQTT topic segment and map it to the InfluxDB measurement name, AND extract the area segment as an `area` tag to distinguish sensors with the same name in different plant areas.
 
 #### Scenarios
 
@@ -252,6 +290,8 @@ Telegraf MUST use the `mqtt_consumer` input plugin subscribed to `planta/linea1/
 - All `depends_on` conditions for services that require upstream readiness MUST use `condition: service_healthy`
 - If any service fails its healthcheck, Docker Engine MUST restart it (containers MUST NOT have `restart: no`)
 
+(Previously: createbuckets had `restart: "no"` which violated this requirement)
+
 ### NFR-3: Security
 
 - All credentials (MinIO root user/password, InfluxDB token placeholder) MUST be read from environment variables; hardcoded values in committed files are NOT permitted
@@ -275,8 +315,8 @@ Telegraf MUST use the `mqtt_consumer` input plugin subscribed to `planta/linea1/
 3. `docker-compose logs telegraf` contains no error lines; batch write confirmations are present
 4. Grafana dashboard at `http://localhost:3000` displays the `linea-envasado` dashboard with 8 time-series panels showing live data within 30 seconds of opening
 5. The OEE panel is visible and displays a value between 0 and 100
-6. Injecting `temperatura_pasteurizador > 85 °C` (via natural spike) triggers the `Alta Temperatura Pasteurizador` alert in Grafana within 30 seconds
-7. Injecting `vibracion_llenadora > 8 mm/s` (via natural spike) triggers the `Vibración Llenadora Alta` alert in Grafana within 30 seconds
+6. Injecting `temperatura_pasteurizador > 85 °C` (via natural spike) triggers the `Temperatura pasteurizador alta` alert in Grafana within 45 seconds
+7. Injecting `vibracion_llenadora > 8 mm/s` (via natural spike) triggers the `Vibración llenadora alta` alert in Grafana within 45 seconds
 8. Sensor-to-panel latency measured end-to-end is < 3 seconds
 9. MinIO Console at `http://localhost:9001` shows at least one Parquet file under bucket `influxdb3` after 60 seconds of simulator runtime
 10. `.env.example` contains every variable referenced across `docker-compose.yml`, `telegraf.conf`, and all configuration files

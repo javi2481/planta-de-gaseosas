@@ -1,0 +1,69 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: planta-linea1
+    folder: Planta de Gaseosas
+    interval: 30s
+    rules:
+      - uid: alert-temp-pasteurizador
+        title: Temperatura pasteurizador alta
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: InfluxDB3
+            model:
+              refId: A
+              rawQuery: true
+              query: 'SELECT mean("value") FROM "temperatura_pasteurizador" WHERE time > now() - 1m'
+              resultFormat: time_series
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+        noDataState: NoData
+        execErrState: Error
+        for: 30s
+        labels:
+          severity: critical
+          sensor: temperatura_pasteurizador
+        annotations:
+          summary: "Temperatura pasteurizador > 85 C"
+
+      - uid: alert-vibracion-llenadora
+        title: Vibracion llenadora alta
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: InfluxDB3
+            model:
+              refId: A
+              rawQuery: true
+              query: 'SELECT mean("value") FROM "vibracion_llenadora" WHERE time > now() - 1m'
+              resultFormat: time_series
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [8] }
+        noDataState: NoData
+        execErrState: Error
+        for: 30s
+        labels:
+          severity: critical
+          sensor: vibracion_llenadora
+        annotations:
+          summary: "Vibracion llenadora > 8 mm/s"

@@ -1,0 +1,5 @@
+change: cleanup-gga-and-compose-cmds
+status: verified
+phases_completed: [explore, propose, spec, design, tasks, apply, verify]
+phases_in_progress: []
+artifact_store: openspec

@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB3
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8181
+    isDefault: true
+    jsonData:
+      dbName: sensores
+      httpMode: GET
+      httpHeaderName1: "Authorization"
+    secureJsonData:
+      httpHeaderValue1: "Token ${INFLUXDB3_TOKEN}"
+    editable: false
