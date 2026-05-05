@@ -1,4 +1,4 @@
-# Componentes — Planta de Gaseosas
+﻿# Componentes — Planta de Gaseosas
 
 Documentación detallada de cada componente del stack. Para cada uno: qué hace **en este proyecto**, cómo se configura, cómo se comunica, qué pasa si falla, y cómo debuggearlo.
 
@@ -33,7 +33,7 @@ No almacena mensajes persistentes — funciona como un tubo: lo que entra, sale 
 | Escenario | Efecto | Recuperación |
 |-----------|--------|-------------|
 | Mosquitto se cae | El simulador pierde conexión. Telegraf pierde fuente de datos. **No se pierden datos en InfluxDB** (lo que ya está escrito sigue ahí). | Docker Engine reinicia el contenedor automáticamente (`restart: unless-stopped`). El simulador reconecta solo (paho-mqtt tiene auto-reconnect). |
-| Mosquitto tarda en arrancar | Telegraf no arranca (depende de `mosquitto: condition: service_healthy`). Simulator no arranca. | El healthcheck de Mosquitto (`mosquitto_sub -t '$SYS/broker/uptime' -W 3`) debe pasar primero. Timeout máximo: ~50 segundos (5s interval × 10 retries). |
+| Mosquitto tarda en arrancar | Telegraf no arranca (depende de `mosquitto: condition: service_healthy`). Simulator no arranca. | El healthcheck de Mosquitto (`mosquitto_sub -t '$SYS/broker/uptime' -W 3`) debe pasar primero. Timeout maximo: ~70 segundos (10s start_period + 5s interval x 12 retries). |
 | Puerto 1883 en uso | Mosquitto no arranca. Todo el stack falla. | Liberar el puerto: `lsof -i :1883` o `netstat -ano | findstr 1883`. |
 
 ### Cómo debuggearlo

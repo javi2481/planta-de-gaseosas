@@ -1,4 +1,4 @@
-# Flujo de Datos — Planta de Gaseosas
+﻿# Flujo de Datos — Planta de Gaseosas
 
 Este documento recorre **un dato completo** desde que nace en el simulador hasta que aparece en un panel de Grafana. Si no entendés cómo viaja la información, leé esto.
 
@@ -279,11 +279,11 @@ Grafana: panel muestra ~75°C
 Alerta: NO dispara (75 < 85)
 ```
 
-### T = 300 a 301 segundos (spike!)
+### T = 300 a 344 segundos (spike dura 45 segundos)
 
 ```python
 # En sensores.py:
-spike_window = (t % 300) < 45  # TRUE cuando t = 300 a 344
+spike_window = (t % 300) < 45  # TRUE cuando t = 300 hasta t = 344 (45 segundos)
 value = cfg["spike"]  # → 92.0
 ```
 

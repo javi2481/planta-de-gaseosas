@@ -1,4 +1,4 @@
-# Mapa de Archivos — Planta de Gaseosas
+﻿# Mapa de Archivos — Planta de Gaseosas
 
 Listado completo de archivos del proyecto. Para cada archivo: qué hace, de qué depende, y quién lo usa.
 
@@ -30,10 +30,11 @@ Listado completo de archivos del proyecto. Para cada archivo: qué hace, de qué
 - **Depende de:** Nada.
 - **Usado por:** Git.
 
-### `.gga`
-- **Lenguaje:** [TODO] — verificar contenido y propósito.
-- **Depende de:** —
-- **Usado por:** —
+### ` .gga `
+- **Lenguaje:** Shell (formato propio del agente IA Gentleman)
+- **Proposito:** Configuracion del agente de revision de codigo. Define que tipos de archivo revisar (`FILE_PATTERNS="*.py"`) para que el agente solo analice codigo Python y no archivos de config, JSON ni Markdown.
+- **Depende de:** Nada.
+- **Usado por:** El agente Gentleman cuando hace revisiones de codigo del proyecto.
 
 ---
 

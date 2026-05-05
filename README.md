@@ -1,4 +1,4 @@
-# Planta de Gaseosas — Stack de Monitoreo IoT
+﻿# Planta de Gaseosas — Stack de Monitoreo IoT
 
 Stack Docker Compose para el monitoreo en tiempo real de una linea de envasado de gaseosas. Incluye simulacion de sensores, ingestion MQTT, almacenamiento en time-series sobre object storage (MinIO/InfluxDB 3 Core) y visualizacion en Grafana.
 
@@ -20,6 +20,7 @@ Simulador Python --> Mosquitto (MQTT) --> Telegraf --> InfluxDB 3 Core --> Grafa
 | telegraf       | Agente de ingestion MQTT -> InfluxDB     | —            |
 | grafana        | Visualizacion y alertas                  | 3000         |
 | simulator      | Simulador de 11 sensores con UNS (Unified Naming System) | —            |
+| createbuckets  | Job de inicio: crea el bucket en MinIO (se ejecuta una vez y termina) | —  |
 
 ## Requisitos
 
@@ -50,7 +51,7 @@ Editar `.env` si se desean cambiar credenciales u otros parametros. Los valores 
 docker compose up -d
 ```
 
-El stack tarda hasta 60 segundos en que todos los servicios pasen a estado `healthy`. Se puede verificar con:
+El stack tarda hasta 70 segundos en que todos los servicios pasen a estado `healthy`. Se puede verificar con:
 
 ```bash
 docker compose ps

@@ -1,4 +1,4 @@
-# Glosario — Planta de Gaseosas
+﻿# Glosario — Planta de Gaseosas
 
 Términos técnicos usados en el proyecto. Cada uno tiene definición clara y ejemplo concreto de este stack.
 
@@ -46,7 +46,7 @@ Términos técnicos usados en el proyecto. Cada uno tiene definición clara y ej
 ### Counter (Contador)
 **Definición:** Tipo de métrica que solo incrementa (monótonamente creciente). No decrece excepto cuando se reinicia el proceso.
 
-**Ejemplo en este proyecto:** `conteo_botellas` y `conteo_rechazos` son counters. Incrementan cada segundo. En Grafana se grafican con `non_negative_derivative` para mostrar la tasa de cambio.
+**Ejemplo en este proyecto:** `conteo_botellas` y `conteo_rechazos` son counters. `conteo_botellas` incrementa cada segundo. `conteo_rechazos` solo incrementa el 2% del tiempo (el 98% de los segundos no cambia), porque simula rechazos esporadicos. En Grafana se grafican con `non_negative_derivative` para mostrar cuantas unidades se sumaron por intervalo de tiempo en lugar del total acumulado.
 
 ---
 
@@ -224,6 +224,8 @@ Si se produjeron 120 botellas y 6 fueron rechazadas: OEE = (120-6)/120 × 100 = 
 
 ### Spike
 **Definición:** Valor artificialmente alto que el simulador genera periódicamente para probar alertas. Simula una anomalía del proceso real.
+
+**Sensores con spike:** `temperatura_pasteurizador` y `vibracion_llenadora`. Los otros 9 sensores no tienen spike: sus valores fluctuan normalmente sin anomalias artificiales.
 
 **Ejemplo en este proyecto:** Cada 5 minutos (`t % 300 < 45`), durante 45 segundos:
 - `temperatura_pasteurizador` pasa de ~75°C a **92.0°C**
